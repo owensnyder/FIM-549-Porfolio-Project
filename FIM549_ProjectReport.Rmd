@@ -1,0 +1,557 @@
+---
+title: "FIM549ProjectReport"
+author: "Owen Snyder"
+date: '2022-08-04'
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    theme: readable
+---
+
+# Brief Introduction
+
+This is a full report on the stocks of Johnson & Johnson (JNJ) and the S&P 500 (SPY) during the period of January 1, 2019 and December 31, 2021. This report will include various risk measures that can help one get a better idea of how risky a position can be. We will first start by utilizing the `quantmod` package to pull the data associated with these positions. Next, some time series plots will be generated to give us a better visual of the period that we have chosen. After visualization is complete, we will begin modeling volatility by first using the GARCH(1,1) model and using long-term volatility formulas to forecast future volatility. After this, we will begin to model Value at Risk (VaR) and Expected Shortfall (ES). The VaR and ES calculations will be in reference to a theoretical portfolio of \$1,000,000 invested into each stock position and a combined portfolio of the two totaling \$2,000,000. (note which methods we use). Next, we will look at how well correlated these stocks are with one another and round everything out with some discussions on the methods used and my findings.
+
+All page numbers reference *Risk Management and Financial Institutions* by John Hull.  
+
+
+
+# Packages Used
+
+First, these were the packages that I used for the report.  
+
+* `quantmod`  
+* `PerformanceAnalytics`  
+* `rugarch`  
+* `tidyverse`  
+* `ggplot2`
+
+```{r message = FALSE, warning=FALSE}
+library(quantmod)
+library(PerformanceAnalytics)
+library(rugarch)
+library(ggplot2)
+library(tidyverse)
+```
+
+# Section 1: Load Data
+
+Before we start analysis, we must utilize `quantmod` to pull the data for our chosen periods. 
+
+**NOTE:** Our first trading day will produce a log return of 'NA' so we set this value to be zero as there are no returns on our first day.  
+
+```{r message=FALSE}
+## use the getSymbols() function to find data for the time period
+JNJ.Data <- getSymbols('JNJ',from='2019-01-01',to='2021-12-31', auto.assign = FALSE, warnings = FALSE)
+## now create log returns
+logReturnsJNJ <- diff(log(JNJ.Data$JNJ.Close))
+## set first value as 0 because no returns on first day 
+logReturnsJNJ$JNJ.Close[1] <- 0
+## look at first 6 observations to check data
+head(logReturnsJNJ)
+```
+
+
+Next, let us do the same procedure to find the SPY data.
+```{r}
+## use the getSymbols() function to find data for the time period
+SPY.Data <- getSymbols('SPY',from='2019-01-01',to='2021-12-31', auto.assign = FALSE)
+## now create log returns
+logReturnsSPY <- diff(log(SPY.Data$SPY.Close))
+## set first value as 0 because no returns on first day 
+logReturnsSPY$SPY.Close[1] <- 0 
+## look at first 6 observations to check data
+head(logReturnsSPY)
+```
+
+
+# Section 2: Plots
+
+## JNJ Cloing Price Plot
+
+Raw closing price time series plot for JNJ:  
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+## This is using only the Close Price for JNJ
+ggplot(JNJ.Data, aes(x = index(JNJ.Data), y = JNJ.Data[,4])) + geom_line(color = "darkblue") + ggtitle("JNJ ClosePrice Series") + xlab("Date") + ylab("ClosePrice") + theme(plot.title = element_text(hjust = 0.5)) + scale_x_date(date_labels = "%b %y", date_breaks = "6 months")
+```
+
+## JNJ Log Returns Plot
+
+Raw log-returns closing price time series plot for JNJ:
+```{r warning=FALSE, message=FALSE, eval = FALSE}
+## This is using Log-Returns for JNJ
+ggplot(JNJ.Data, aes(x = index(logReturnsJNJ), y = logReturnsJNJ)) + geom_line(color = "darkblue") + 
+  ggtitle("JNJ LogReturn Series") + xlab("Date") + ylab("LogReturn") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_x_date(date_labels = "%b %y", date_breaks = "6 months")
+```
+
+## SPY Time Series Plot
+
+Raw closing price time series plot for SPY: 
+```{r warning=FALSE, message=FALSE}
+## This is using only the Close Price for SPY
+ggplot(JNJ.Data, aes(x = index(SPY.Data), y = SPY.Data[,4])) + geom_line(color = "darkblue") + ggtitle("SPY ClosePrice Series") + xlab("Date") + ylab("ClosePrice") + theme(plot.title = element_text(hjust = 0.5)) + scale_x_date(date_labels = "%b %y", date_breaks = "6 months")
+
+```
+
+## SPY Log Returns Plot
+
+Raw log-returns closing price time series plot for SPY:
+```{r warning=FALSE, message=FALSE}
+## This is using only the Log-Returns for SPY
+ggplot(JNJ.Data, aes(x = index(logReturnsSPY), y = logReturnsSPY)) + geom_line(color = "darkblue") + ggtitle("SPY LogReturns Series") + xlab("Date") + ylab("LogReturns") + theme(plot.title = element_text(hjust = 0.5)) + scale_x_date(date_labels = "%b %y", date_breaks = "6 months")
+```
+
+
+
+# Section 3: Volatility
+
+**Report GARCH(1,1) model parameters (Omega, alpha and beta) and p-value statistics for the**
+**selected symbol and SPY.**
+
+In this section, I will utilize the `rugarch` package to fit GARCH(1,1) models on each stock and report model parameters such as Omega, Alpha, and Beta, while also reporting p-values.
+
+## GARCH for JNJ
+```{r eval=FALSE}
+garchspec <- ugarchspec(
+             mean.model = list(armaOrder = c(0,0)),
+             variance.model = list(model = 'sGARCH'),
+             distribution.model = 'norm')
+garchfitJNJ <- ugarchfit(data = logReturnsJNJ, spec = garchspec)
+garchfitJNJ
+garchcoef <- coef(garchfitJNJ)
+
+
+print(garchcoef)
+```
+
+### GARCH Plots for JNJ
+
+These plots produce a strong visual of the state of the market during the given time period. For example, it is important to note the 2020 and its affect on this position.
+```{r eval=FALSE}
+## use which = ... to output auto-generated GARCH plots: 
+plot1 <- plot(garchfitJNJ, which = 2)
+plot1
+plot2 <- plot(garchfitJNJ, which = 3)
+plot2
+
+
+
+```
+
+
+**This is for SPY:**
+```{r}
+garchspec <- ugarchspec(
+  mean.model = list(armaOrder = c(0,0)),
+  variance.model = list(model = 'sGARCH'),
+  distribution.model = 'norm')
+garchfitSPY <- ugarchfit(data = logReturnsSPY, spec = garchspec) 
+show(garchfitSPY)
+garchcoefSPY <- coef(garchfitSPY)
+print(garchcoefSPY)
+```
+
+
+## Section 2.1 
+**Based on the model estimate and the p-values report the final models for the symbol and**
+**SPY respectively. (10 pts) **
+
+We can model GARCH(1,1) by:
+(formula from p.227)
+$$
+GARCH(1,1)={\omega}+{\alpha}u^2_{n-1}+\beta\sigma^2_{n-1}
+$$
+Thus, our GARCH(1,1) Model for JNJ is:
+$$
+GARCH(1,1)=0.000012+0.134694u^2_{n-1}+0.777625{\sigma^2}_{n-1}
+$$
+Also, the P-values associated with the JNJ parameters are:
+```{r eval=FALSE}
+garchfitJNJ@fit$matcoef
+
+```
+**Here, we see the P-values for omega, alpha, and beta are so small they are reported as 0.**
+**This tells us our predictors are statistically significant for our model.**
+
+Next, the GARCH(1,1) model for SPY is:
+$$
+GARCH(1,1)=0.000007+0.278320u^2_{n-1}+0.685257{\sigma^2}_{n-1}
+$$
+Also, the P-values associated with the SPY parameters are:
+```{r}
+garchfitSPY@fit$matcoef
+```
+**Again, the P-values are so small they are essentially 0. Thus, the parameters are statistically** **significant for our model.**
+
+## Section 2.2
+**What are the long term volatilities of your symbol and the SPY based on the GARCH(1,1)? (5pts)**
+
+Now let us model the long-term volatility using GARCH(1,1). We can use the "rugarch" package again.
+
+On p.232 of John Hull's textbook, the long-term volatility can be modeled by the square root of the long-term variance rate, 
+$$ V_L= \frac{\omega}{1-\alpha-\beta} $$
+For JNJ, this can be estimated by:
+
+$$
+ \begin{align*}
+V_L &= \frac{0.000012}{1-0.134694-0.777625} = 0.0001368597 \\
+\\ 
+\sqrt{V_L} &= \sqrt{0.0001368597} =0.0116987 \\
+\end{align*}
+$$
+
+Thus,**the long-term volatility for JNJ is about 1.1699% **
+
+Next, we can do the same procedure for SPY.
+
+$$
+\begin{align*}
+V_L &= \frac{0.000007}{1-0.278320-0.685257} = 0.0001921863 \\
+\\ 
+\sqrt{V_L} &= \sqrt{0.0001921863} =0.0138631 \\
+\end{align*}
+$$
+Thus, **the long-term volatility for SPY is about 1.3863%**
+
+
+## Section 2.3
+**On Jan 3th, 2022 (first trading day of the year) what are the projected volatilities of your **
+**symbol and SPY? (5 pts)**
+Now let us model the long-term volatility using GARCH(1,1). We can use the "rugarch" package again via the ugarchforecast() function
+This is for JNJ:
+```{r eval=FALSE}
+GarchForecast.JNJ <- ugarchforecast(fitORspec = garchfitJNJ, n.ahead = 2)
+print(GarchForecast.JNJ)
+``` 
+**The output shows that our initial date is 12/30/2021. Thus, if we want the projected volatility** **for 01/03/2022, we look at the T+2 value, that is 0.009456.**
+**Our projected volatility is then 0.9456% **
+
+This is for SPY:
+```{r eval=FALSE}
+GarchForecast.SPY <- ugarchforecast(fitORspec = garchfitSPY, n.ahead = 2)
+print(GarchForecast.SPY)
+```
+**Similarly, for our SPY data, the initial date is set as the same. Again, we look at the T+2**   **output which shows 0.008165. **
+**Our projected volatility is 0.8165% **
+
+
+## Section 3
+**Estimate the correlation between the returns of your symbol and SPY, state the**
+**method/formula that your estimation is based on. (10 pts) **
+```{r}
+cor(logReturnsJNJ,logReturnsSPY)
+```
+Formula from p.244, John Hull 
+
+**From the output, we see that the correlation between JNJ and SPY is about 0.6449 This is ** **calculated in R by: **
+$$
+\rho=\frac{cov(V_1,V_2)}{SD(V_1)SD(V_2)}
+$$
+We can verify this value from R is correct.
+$$
+\rho=\frac{cov(JNJ,SPY)}{SD(JNJ)SD(SPY)} = \frac{0.0001226}{0.01363*0.01395}=0.6449
+$$
+
+## Section 4.1
+
+**1) Report the one-day 99% (historical) VaR and ES of portfolios**
+**(A), (B), (C)  with historical**
+**simulation. What is the diversification benefit in terms of VaR?  (10 pts) **
+
+```{r}
+## Portfolio A represents $1,000,000 invested into JNJ
+## Here, I create a data frame from a xts, i.e a time-series data frame. This will allow me to sort my data without R automatically sorting by date which is the nature of time-series data.
+JNJ.nodate <- coredata(logReturnsJNJ*1000000)
+JNJ.nodate.sorted<- sort(as.numeric(JNJ.nodate), decreasing = TRUE)
+## setting decreasing=TRUE allows me to see the correct value of the portfolio. For example, Hull says gains are counted as negative losses.
+```
+*IMPORTANT NOTE:*
+Because we are working with data from Jan 1, 2019 to Dec 31, 2021, we have N=756 trading days. To calculate the 99 percentile to be able to identify where to look in the sorted data, we take 0.01(756)=7.56. Because 7.56 is not a whole number, we will average the 7th and 8th worst outcomes. For example, if we were working with 500 historical data values, we would take 0.01(500)=5, this would then correspond to the 5th worst loss. But we have N=756.
+
+This is referencing p.294 in John Hull's textbook:
+"This is what is normally done, but there are alternatives. A case can be made for using the fifth worst loss, the sixth worst loss, or an average of the two. In Excel’s PERCENTILE function, when there are n observations and k is an integer, the k∕(n − 1) percentile is the observation ranked     k+1.Other percentiles are calculated using linear interpolation."
+```{r}
+## This is where I extract the 7th and 8th rows.
+JNJ.nodate.sorted7<- sort(as.numeric(JNJ.nodate), decreasing = TRUE)[7]
+print(JNJ.nodate.sorted7)
+JNJ.nodate.sorted8<- sort(as.numeric(JNJ.nodate), decreasing = TRUE)[8]
+print(JNJ.nodate.sorted8)
+JNJ.VaR <- ((43813.83)+(41182.7))/2
+print(JNJ.VaR)
+``` 
+**Thus, we can say that we are 99% confident there is a 1% chance of a loss of $42,498.26 in one day.**
+
+
+To calculate one-day 99% Expected Shortfall, we will average the 8 worst losses. This will encompass are estimate of VaR, which John Hull references as one of two methods to calculate ES (p.294). The other method is to average the worst losses that immediately precede the VaR estimate.
+```{r} 
+JNJ.nodate.sorted.first8<- sort(as.numeric(JNJ.nodate), decreasing = TRUE)[1:8]
+print(JNJ.nodate.sorted.first8)
+JNJ.ES <- sum(JNJ.nodate.sorted.first8)/8
+print(JNJ.ES)
+```
+**Here, we see that the one-day 99% Expected Shortfall is $60,855.48**
+
+Now let's use the same procedure for our SPY data. Again taking into consideration we have N=756 trading days.
+```{r}
+## Portfolio B represents $1,000,000 invested into SPY.
+SPY.nodate <- coredata(logReturnsSPY*1000000)
+SPY.nodate.sorted <- sort(as.numeric(SPY.nodate), decreasing = TRUE)
+```
+
+```{r}
+## Now, extract 7th and 8th rows to correspond to 99th percentile of data set.
+SPY.nodate.sorted7 <- sort(as.numeric(SPY.nodate), decreasing = TRUE)[7]
+print(SPY.nodate.sorted7)
+SPY.nodate.sorted8 <- sort(as.numeric(SPY.nodate), decreasing = TRUE)[8]
+print(SPY.nodate.sorted8)
+
+SPY.VaR <- ((42395)+(41173.644))/2
+print(SPY.VaR)
+```
+**Thus, we can say that we are 99% confident there is a 1% chance of a loss of $41,784.32 in one day.**
+
+Again, to calculate one-day 99% Expected Shortfall, we will average the 8 worst losses.
+```{r}
+
+SPY.nodate.sorted.first8<- sort(as.numeric(SPY.nodate), decreasing = TRUE)[1:8]
+SPY.ES <- sum(SPY.nodate.sorted.first8)/8
+print(SPY.ES)
+``` 
+**Here, we see that the one-day 99% Expected Shortfall is $59,639.83 **
+
+
+Now let us analyze Portfolio C which represents a portfolio of 2,000,000 with 1,000,000 in each JNJ and SPY.
+
+```{r}
+portfolio <- cbind(logReturnsJNJ*1000000,logReturnsSPY*1000000)
+weightsC <- c(0.50,0.50)
+
+VaR(portfolio, p = 0.99, weights = weightsC, portfolio_method = 'component', method = 'gaussian')
+## 'component' means that the function will look at each stock's contribution to portfolio.
+## contribution  shows each stock's contribution in terms of VaR to our portfolio, here we see they are essentially equally weighted.
+```
+**The one-day 99% VaR for Portfolio C is $28,473.84**
+
+Next, we can find the 99% ES of our portfolio:
+```{r}
+## Here, i use the CVaR() function which is the conditional VaR and is the same meaning as ES.
+CVaR(portfolio, p = 0.99, weights = weightsC, portfolio_method = 'component', method = 'historical')
+```
+**Thus, the one-day 99% Expected Shortfall for Portfolio C is $21,731.85**
+
+**VaR Conclusion: "What is the diversification benefit of VaR?"**
+
+To find the Diversification Benefit, I can take the VaR from each individual portfolio and subtract Portfolio C from the addition.
+
+Thus, (42,498.26 + 41,784.32) - 28,473.84 = **$55,808.74 Diversification Benefit.** If JNJ and SPY were perfectly correlated, the VaR of Portfolio C would equal the VaR for each individual portfolio added together.
+
+Diversification is an extremely important aspect when it comes to managing portfolios. A diversified portfolio will grant the portfolio owner with more opportunities to grow, but most importantly, it minimizes risk. The best way to maximize returns/profit is to minimize risk. Furthermore, I believe it is important to note some of the properties of VaR outlined in the textbook (p.275).
+First, I will address monotonicity which states, “If a portfolio produces a worse result than another portfolio for every state of the world, its risk measure should be greater.” So, if one portfolio performs worse than another, its clearly riskier. If we look at JNJ and SPY, we see the one-day 99% VaR is quite similar. However, JNJ does have a higher one-day VaR, thus, we can conclude that it is riskier than the SPY investment. This result is appropriate because SPY is an exchange-traded fund in which it is comprised of many stocks whereas my JNJ investment is clearly only one stock.
+
+Next, it is important to note subadditivity. This states, “The risk measure for two portfolios after they have been merged should be no greater than the sum of their risk measures before they were merged.” This condition is important because it shows that diversification helps reduce risk. However, we must note that this condition is not always satisfied. But assuming this condition holds, we see that the VaR for Portfolio C is much less that either of the two individual portfolios.
+ 
+## Section 4.2
+If we reference the Exceedence Test Criteria (Basel), we hope to backtest in the "green" zone.
+
+First we must obtain a new data set for JNJ for the given dates: March 1, 2021- Feb 28, 2022.
+```{r}
+New.DataJNJ <- getSymbols('JNJ',from='2021-03-01',to='2022-02-28', auto.assign = FALSE, warnings = FALSE)
+## Extract Close Price
+JNJ.BacktestData <- New.DataJNJ$JNJ.Close
+head(JNJ.BacktestData)
+
+## Now we want to calculate log-returns for our Backtest data
+JNJ.Backtest.log <- diff(log(JNJ.BacktestData))
+JNJ.Backtest.log$JNJ.Close[1] <- 0
+head(JNJ.Backtest.log)
+## Now we can scale our new data to $1,000,000
+head(JNJ.Backtest.log*1000000)
+```
+If we want to be in the "green" zone, we don't want there to be more than 4 exceedances. We can model this with the Binomial distribution (Hull p.286):
+$$
+\sum_{k=m}^{n} \frac{n!}{k!(n-k)!}p^k(1-p)^{n-k}
+$$
+Here, the probability of the VaR level being exceeded on *m* or more days is modeled by the above equation. 
+Also, p.358 states, "If the actual loss that occurred on a day is greater than the VaR level calculated for the day, an 'exception' is recorded."
+We can model the cumulative probability using the pbinom() function.
+```{r}
+## Because we don't want more than 4 exceedances, I will model the probability of k=1,2,3,4
+1-pbinom(4,252,0.01)
+# n=252, p=0.01
+```
+**Here, we observe a probability of about 11%. Using a significance level of 5%, we should not reject our model.** (see p.287)
+
+I will now further explore the VaR with the Back-test data set:
+To keep the result simple, the one-day 99% VaR corresponds to the 3rd worst scenario in this data set
+```{r}
+Backtest.JNJ.nodate <- coredata(JNJ.Backtest.log*1000000)
+Backtest.JNJ.nodate.sorted <- sort(as.numeric(Backtest.JNJ.nodate), decreasing = TRUE)
+## Find 3rd observation
+Backtest.JNJ.nodate.sorted[3]
+```
+Here, we see this is a much different value for VaR when compared to the original data for JNJ.
+
+Next, I will show a back-test via a nonparametric bootstrap:
+```{r}
+for(s in 1:252){
+  sample <- sample(x=JNJ.Backtest.log, size=252, replace=TRUE)
+  VaR_estimate <- qnorm(.99)*sd(sample)
+}
+print(VaR_estimate)
+```
+We can simulate an estimate for VaR many times, and the value tends to hover around $20,000 when scaled to 1,000,000.
+
+## Section 4.3
+Back-testing is an extremely important concept in risk management. For VaR, it can tell us how well the risk measure would have performed in the past. This is a good way to assess if there is a weakness in the VaR model used. In the scenario of my back-test, the result did surprise me. I figured I would have simulated a value a little closer to what I had originally. This proves that back-testing is an important step when assessing risk measures.
+
+## Section 4.4
+Because the historical simulation approach estimates the distribution of portfolio changes from a finite number of observations, the estimates of the percentiles of the distribution are subject to error. Furthermore, the higher the VaR confidence level, the higher the standard error. Thus, a better approach to calculating VaR would be through Monte-Carlo simulation. This can be computationally slower but can also be much more accurate and rigorous.
+(Another approach is the Variance-Covariance method)
+
+
+## Section 5.1
+**1) Use the volatility and correlation for your symbol and SPY and calculate one day 99% VaR for**
+**portfolio (C) using normal distribution assumption. (10pts.) **
+
+Here, we will use the methodology described in Section 14.1.1, p.319 of Hull's textbook.
+
+For the Two-Asset Case, we can find the standard deviation of the portfolio using standard deviation and correlation by:
+$$ 
+\sigma_{X+Y} = \sqrt{\sigma^2_X +\sigma^2_Y+2\rho\sigma_X\sigma_Y}
+$$
+Note: X corresponds to JNJ, and Y corresponds to SPY.
+
+```{r}
+## We can calculate the respective standard deviations as follows:
+sd(logReturnsJNJ$JNJ.Close*1000000)
+sd(logReturnsSPY$SPY.Close*1000000)
+## and the correlation:
+## note this will be the same value as before without using the investment.
+
+cor(logReturnsJNJ$JNJ.Close*1000000,logReturnsSPY$SPY.Close*1000000)
+```
+Now that we have our values, we can find the standard deviation of my portfolio.
+
+$$
+\begin{align*}
+\sigma_{X+Y} &= \sqrt{13634.34^2+13948.6^2+2*0.6449594*13634.34*13948.6} \\
+\sigma_{X+Y} &= 25015.5
+\end{align*}
+$$
+Now we can calculate the one-day 99% VaR using the Normal distribution assumption.
+Because we are assuming the joint distribution of the returns from JNJ and SPY is Bivariate Normal, the change in the portfolio is Normally distributed.
+Therefore,
+
+```{r}
+qnorm(.99)*25015.5
+```
+**Thus using volatility and correlation, our one-day 99% VaR for Portfolio C is $58,194.76 **
+*Note that there is a Time-Horizon of sqrt(T) as a multiplier, however, in this example the time* *horizon works out to equal 1.*
+
+## Section 5.2
+**2) Compare the 99% VaR for portfolio (C) from 4-1) and 5-1). Which approach leads to a larger**
+**VaR? What could be the reason for this difference? (5pts.)**
+
+It is clear that the values for each method of VaR for Portfolio C are different. In fact, when using the volatility and correlation, the value for VaR is almost twice that of the historical method. Although this approach is relatively simple and quick, it relies on a major assumption that we are working with Normally distributed data. A beautiful concept in statistics is the simplicity of the Normal distribution, but we cannot always assume or prove our data is Normal.
+
+## Section 6
+**Use the results above and the actual profit and loss on Jan 3rd, 2022 to assess and discuss which** **portfolio (i.e. A, B, or C) has the best risk adjusted performance, assuming 99% VaR is used for** **economic capital. (10pts.)**
+
+Risk-adjusted performance measurements have become vital to how business units are managed. One of the most common approaches is risk-adjusted return on capital (RAROC). This can be calculated by:
+
+$$
+RAROC= \frac{Revenues-Costs-Expected Losses}{Economic Capital}
+$$
+According to our lecture slides, the denominator can be expressed as VaR or ES. In these instances, I will use each respective VaR. Furthermore, RAROC can be calculated ex-ante or ex-post. Ex-ante uses estimates of expected profits, whereas ex-post uses actual profit results. (p.598)
+
+First, I will import the data related to JNJ and SPY on Jan 3rd, 2022.
+
+```{r warning=FALSE}
+JNJ.Data.Part6 <- getSymbols('JNJ',from='2022-01-02',to='2022-01-04', auto.assign = FALSE)
+print(JNJ.Data.Part6)
+SPY.Data.Part6 <- getSymbols('SPY',from='2022-01-02',to='2022-01-04', auto.assign = FALSE)
+print(SPY.Data.Part6)
+```
+Next, I will calculate daily returns using the dailyReturn() function.
+```{r}
+JNJ.Return.Part6 <- dailyReturn(JNJ.Data.Part6)
+print(JNJ.Return.Part6)
+SPY.Return.Part6 <- dailyReturn(SPY.Data.Part6)
+print(SPY.Return.Part6)
+```
+
+Next, I will use the historical data to calculate net income from my investment:
+```{r}
+JNJ.income <- sum(logReturnsJNJ$JNJ.Close*1000000)
+print(JNJ.income)
+SPY.income <- sum(logReturnsSPY$SPY.Close*1000000)
+print(SPY.income)
+```
+Thus, the RAROC for Portfolio A can be calculated by:
+
+```{r}
+JNJ.income*JNJ.Return.Part6/(JNJ.VaR)
+```
+
+**Thus, the RAROC for Portfolio A is about 5.50% **
+
+Now, for Portfolio B:
+```{r}
+SPY.income*SPY.Return.Part6/(SPY.VaR)
+```
+**The RAROC for Portfolio B is 4.56% **
+
+Now, for Portfolio C:
+```{r}
+(JNJ.income*JNJ.Return.Part6 + SPY.income*SPY.Return.Part6) / (28473.84)
+```
+**The RAROC is 14.9% **
+
+**In conclusion, we see that the RAROC for Portfolio A is higher than that of Portfolio B. Also, as** **expected, the RAROC for Portfolio C is greater than the two individual portfolios, A and B.**
+
+
+
+
+
+TRY USING KNN ON STOCK DATA 
+```{r}
+library(caret)
+library(class)
+
+```
+
+Split data into a training and test set for JNJ and SPY.
+
+JNJ
+```{r}
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Appendix
+Here are some useful links with information regarding financial packages in R:  
+1. https://cran.r-project.org/web/packages/quantmod/index.html  
+2. https://cran.r-project.org/web/packages/rugarch/index.html  
+3. https://cran.r-project.org/web/packages/PerformanceAnalytics/index.html  
+
+
+
